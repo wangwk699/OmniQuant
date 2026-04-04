@@ -96,7 +96,7 @@ def evaluate(lm, args, logger):
         for dataset in ["wikitext2", "c4"]:
             cache_testloader = f'{args.cache_dir}/testloader_{args.model_family}_{dataset}_all.cache'
             if os.path.exists(cache_testloader):
-                testloader = torch.load(cache_testloader)
+                testloader = torch.load(cache_testloader, weights_only=False)
                 logger.info(f"load calibration from {cache_testloader}")
             else:
                 dataloader, testloader = get_loaders(
@@ -144,7 +144,7 @@ def evaluate(lm, args, logger):
             logger.info(f'{dataset} : {ppl.item()}')
             lm.model.config.use_cache = use_cache
             results[dataset] = ppl.item()
-    if args.tasks != "":
+    if args.tasks != "":   # 零样本任务评估, 评估模型在下游任务上的泛化能力
         t_results = evaluator.simple_evaluate(
             lm,
             tasks=args.tasks,

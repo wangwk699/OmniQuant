@@ -60,7 +60,7 @@ def truncate_number(number, threshold=1e-2):
     return TruncateFunction.apply(number, threshold)     
 
 def smooth_and_quant_temporary(model, args, isllama):
-    if args.let:
+    if args.let:  # ← LET 开启时：执行等效变换 + 量化
         with torch.no_grad():
             for name, module in model.named_parameters():
                 if "smooth_scale" in name:
@@ -85,11 +85,12 @@ def smooth_and_quant_temporary(model, args, isllama):
             smooth_q_k_temporary(model.self_attn.q_proj, model.self_attn.k_proj,
                                 model.qkt_smooth_scale)
             model.fc2.temp_weight = model.fc2.weight
-    else:
+    else:  # ← LET 开启时：执行等效变换 + 量化
         for name, module in model.named_modules():
             if isinstance(module, QuantLinear):
-                module.temp_weight = module.weight
-    # quant
+                module.temp_weight = module.weight  # ① 保存原始权重
+                
+    # quant # ← 量化阶段（无论 args.let 为何值都会执行）
     for name, module in model.named_modules():
         if isinstance(module, QuantLinear):
             if hasattr(module, "temp_weight"):

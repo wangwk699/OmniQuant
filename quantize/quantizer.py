@@ -65,7 +65,7 @@ class UniformAffineQuantizer(nn.Module):
         self.deficiency = 0
         self.lwc = lwc
         
-        init_value = 4.             # inti value of learnable weight clipping
+        init_value = 4.             # inti value of learnable weight clipping  可学习权重裁剪的初始值
         if lwc:
             if group_size:
                 dim1 = int(shape[0]*math.ceil(shape[1]/group_size))

@@ -213,12 +213,12 @@ def omniquant(
                         fp_inps[j] = qlayer(fp_inps[j].unsqueeze(0), attention_mask=attention_mask,position_ids=position_ids)[0]
                         if args.aug_loss:
                             fp_inps_2[j] = qlayer(quant_inps[j].unsqueeze(0), attention_mask=attention_mask,position_ids=position_ids)[0]
-        # init smooth parameters
+        # init smooth parameters  初始化 LET 参数
         set_quant_state(qlayer, weight_quant=False, act_quant=True)  # weight will be manually quantized before forward
         qlayer.let = args.let
         use_shift = True 
         if is_llama or args.abits == 16:
-            use_shift = False                   # deactivate channel-wise shifting for llama model and weight-only quantization
+            use_shift = False                   # deactivate channel-wise shifting for llama model and weight-only quantization 针对 LLaMA 模型以及纯权重量化，禁用通道级偏移（channel-wise shifting）
         if args.let:
             # init channel-wise scaling and shift
             qlayer.register_parameter("qkt_smooth_scale",torch.nn.Parameter(torch.ones(layer.self_attn.q_proj.out_features,device=dev, dtype=dtype)))
@@ -242,8 +242,8 @@ def omniquant(
 
         if args.epochs > 0:
             with torch.no_grad():
-                qlayer.float()      # required for AMP training
-            # create optimizer
+                qlayer.float()      # required for AMP training  自动混合精度训练（AMP）所必需的
+            # create optimizer 联合优化 LWC+LET
             optimizer = torch.optim.AdamW(
                 [{"params":let_parameters(qlayer, use_shift),"lr":args.let_lr}, {"params":lwc_parameters(qlayer),"lr":args.lwc_lr}],weight_decay=args.wd)
             loss_scaler = utils.NativeScalerWithGradNormCount()
@@ -255,7 +255,7 @@ def omniquant(
                     index = j * args.batch_size
                     # obtain output of quantization model
                     with traincast():
-                        smooth_and_quant_temporary(qlayer, args, is_llama)
+                        smooth_and_quant_temporary(qlayer, args, is_llama) # 若禁用let，则这一步是只对权重进行量化
                         quant_out = qlayer(quant_inps[index:index+args.batch_size,], attention_mask=attention_mask_batch,position_ids=position_ids)[0]
                         loss = loss_func(fp_inps[index:index+args.batch_size,], quant_out)
                         if args.aug_loss:
