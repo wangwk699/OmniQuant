@@ -85,7 +85,7 @@ def evaluate(lm, args, logger):
     else:
         if "opt" in args.net.lower():
             lm.model.model.decoder = lm.model.model.decoder.to(lm.device)
-        elif "llama" in args.net.lower() or "mixtral" in args.net.lower():
+        elif "llama" in args.net.lower() or "qwen" in args.net.lower():
             lm.model = lm.model.to(lm.device)
         elif "falcon" in args.net.lower():
             lm.model.transformer = lm.model.transformer.to(lm.device)
@@ -120,7 +120,7 @@ def evaluate(lm, args, logger):
                 batch = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(lm.device)
                 if "opt" in args.net.lower():
                     outputs = lm.model.model.decoder(batch)
-                elif "llama" in args.net.lower() or "mixtral" in args.net.lower():
+                elif "llama" in args.net.lower() or "qwen" in args.net.lower():
                     outputs = lm.model.model(batch)
                 elif "falcon" in args.model:
                     outputs = lm.model.transformer(batch)

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from models.int_qwen_layer import QuantQwenDecoderLayer
 from models.int_llama_layer import QuantLlamaDecoderLayer
 from models.int_opt_layer import QuantOPTDecoderLayer
 from models.int_falcon_layer import QuantFalconDecoderLayer
@@ -55,6 +56,7 @@ def omniquant(
     use_cache = model.config.use_cache
     model.config.use_cache = False
     is_llama = False
+    is_qwen = False
     if "llama" in args.net.lower():
         is_llama = True
         layers = model.model.layers
@@ -67,6 +69,18 @@ def omniquant(
             "up_proj":"fc1"
         }
         layer_name_prefix = "model.layers"
+    elif "qwen" in args.net.lower():
+        is_qwen = True
+        layers = model.model.layers
+        model.model.embed_tokens = model.model.embed_tokens.to(dev)
+        model.model.norm = model.model.norm.to(dev)
+        DecoderLayer = QuantQwenDecoderLayer
+        pairs = {
+            "q_proj":"qkv",
+            "o_proj":"out",
+            "up_proj":"fc1"
+        }
+        layer_name_prefix = "model.layers"        
     elif "opt" in args.net.lower():
         layers = model.model.decoder.layers
         model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
@@ -117,17 +131,19 @@ def omniquant(
             super().__init__()
             self.module = module
             self.is_llama = False
+            self.is_qwen = False
 
         def forward(self, inp, **kwargs):
             inps[cache["i"]] = inp
             cache["i"] += 1
             cache["attention_mask"] = kwargs["attention_mask"]
-            if self.is_llama:
+            if self.is_llama or self.is_qwen:
                 cache["position_ids"] = kwargs["position_ids"]
             raise ValueError
 
     layers[0] = Catcher(layers[0])
     layers[0].is_llama = is_llama
+    layers[0].is_qwen = is_qwen
 
     with torch.no_grad():
         for batch in dataloader:
@@ -141,7 +157,8 @@ def omniquant(
     # move embedding layer and first layer to cpu
     layers[0] = layers[0].module
     layers[0] = layers[0].cpu()
-    if "llama" in args.net.lower() or "mixtral" in args.net.lower():
+    # if "llama" in args.net.lower() or "mixtral" in args.net.lower():
+    if "llama" in args.net.lower() or "qwen" in args.net.lower():
         model.model.embed_tokens = model.model.embed_tokens.cpu()
         model.model.norm = model.model.norm.cpu()
     elif "opt" in args.net.lower():
@@ -175,7 +192,7 @@ def omniquant(
         attention_mask_batch = None
 
     loss_func = torch.nn.MSELoss()
-    if is_llama:
+    if is_llama or is_qwen:
         position_ids = cache["position_ids"]
     else:
         position_ids = None
@@ -208,7 +225,7 @@ def omniquant(
         set_quant_state(qlayer, weight_quant=False, act_quant=False)
         if args.epochs > 0:
             with torch.no_grad():
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     for j in range(args.nsamples):
                         fp_inps[j] = qlayer(fp_inps[j].unsqueeze(0), attention_mask=attention_mask,position_ids=position_ids)[0]
                         if args.aug_loss:
@@ -217,7 +234,7 @@ def omniquant(
         set_quant_state(qlayer, weight_quant=False, act_quant=True)  # weight will be manually quantized before forward
         qlayer.let = args.let
         use_shift = True 
-        if is_llama or args.abits == 16:
+        if (is_llama or is_qwen) or args.abits == 16:
             use_shift = False                   # deactivate channel-wise shifting for llama model and weight-only quantization 针对 LLaMA 模型以及纯权重量化，禁用通道级偏移（channel-wise shifting）
         if args.let:
             # init channel-wise scaling and shift
@@ -255,7 +272,8 @@ def omniquant(
                     index = j * args.batch_size
                     # obtain output of quantization model
                     with traincast():
-                        smooth_and_quant_temporary(qlayer, args, is_llama) # 若禁用let，则这一步是只对权重进行量化
+                        is_llama_qwen = is_llama or is_qwen
+                        smooth_and_quant_temporary(qlayer, args, is_llama_qwen) # 若禁用let，则这一步是只对权重进行量化
                         quant_out = qlayer(quant_inps[index:index+args.batch_size,], attention_mask=attention_mask_batch,position_ids=position_ids)[0]
                         loss = loss_func(fp_inps[index:index+args.batch_size,], quant_out)
                         if args.aug_loss:

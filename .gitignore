@@ -19,4 +19,5 @@ act_shifts/
 pre_quantized_models/
 temp.sh
 w4a16.sh
-
+llama.sh
+qwen.sh
